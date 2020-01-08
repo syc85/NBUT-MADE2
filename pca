@@ -1,0 +1,300 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%Author
+%tianwei chen 
+%yangcheng shen
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+clear all
+close all
+clc
+s = dir('E:\QQ文件\Face ID\训练');
+s(1:2) = [];
+si = 256 * 256;    % 每张图片像素总数
+n = length(s);    % 训练集内照片总数
+img = zeros(si, n);
+%M=20;   %训练集图片数
+M=n;
+um=100;
+ustd=80;
+
+%这一步读取与显示训练集中的图片close 
+S=[];     %训练集矩阵
+figure(1);
+addpath('E:\QQ文件\Face ID\训练\');  %设计raindatabase路径
+for i=1:M
+    %str=strcat(int2str(i),'.jpg');   %连接两字符串形成图片的文件名
+    path = strcat('E:\QQ文件\Face ID\训练\', s(i).name);
+    imge = imread(path);
+    %eval('img=imread(str);');        %读取图片存储在img中 在matlab中执行
+    subplot(ceil(sqrt(M)),ceil(sqrt(M)),i)   %把窗口分成 4 X 5 显示
+    imshow(imge);                     %显示读取到的图片
+    imge=rgb2gray(imge);
+    a1=mean2(imge); %第二种方法：用函数mean2求总均值
+    a2=std2(imge);
+    summ=0;summ2=0;
+    summ=summ+a1;
+    summ2=summ2+a2;
+    if i==3
+        title('训练集图像（Training）','fontsize',20)  %设计窗口标题及大少
+    end
+    drawnow;   %刷新
+    [irow icol]=size(imge);   %提取一种图片的行与列的大小
+    temp=reshape(imge,irow*icol,1);      %创建一个 (N1*N2)x1 的列向量
+    S=[S temp];     %创建N1*N2xM 的列向量                 
+end
+um=summ;
+ustd=summ2;
+
+
+%这部分改变所有的图像的均值和标准值,对图像进行规格化
+for i=1:size(S,2)
+    temp=double(S(:,i));  %获取S矩阵的第i个列矩阵并双精度化
+    m=mean(temp);         %求列向量的均值
+    st=std(temp);         %求temp的标准偏差 （是样本标准差）
+    S(:,i)=(temp-m)*ustd/st+um;   %由此公式对S进行均值化
+    
+    path = strcat('E:\QQ文件\Face ID\训练\', s(i).name);
+    f = imread(path);
+    f = rgb2gray(f); 
+    f = imresize(f, [256, 256]);
+    f = reshape(f, [si, 1]); % f拉成列向量
+    f = im2double(f);% f转换成double类型
+    img(:, i) = f;%取矩阵(或者图像)img的第k列的所有数据
+end
+
+mean_img = mean(img, 2);%返回值为img矩阵的各行向量的均值
+for k = 1:n
+   img(:, k) = img(:, k) - mean_img; 
+end
+[w, a, explained] = pcacov(img' * img);
+w = img * w;
+face_num = 0;   % face_num用于存储需要特征脸的数目,协方差>=95% 
+per = 0;
+while(per<95)
+    face_num = face_num + 1;
+    per = per + explained(face_num);
+end
+
+w = w(:, 1:face_num);
+for k = 1:face_num
+   w(:, k) = w(:, k)/norm(w(:, k)); 
+end
+
+eigenface = zeros(face_num, n);   % eigenface用于储存在人脸图像在特征空间的表达
+
+for k = 1:n
+    eigenface(:, k) = w' * img(:, k);
+end
+
+
+figure(2);
+for i=1:M
+    %str=strcat(int2str(i),'.bmp');  %读取20张图片
+    img=reshape(S(:,i),irow,icol);  %把S集合中的第i列向量转为大小为irow*icol的矩阵
+    %img=img';   %转置
+    %eval('imwrite(img,str)');   %%执行字符串 把图片读写人当前目录
+    subplot(ceil(sqrt(M)),ceil(sqrt(M)),i)  %按4X5的行列显示
+    imshow(img)    %显示规格化后的图像
+    drawnow;       %刷新
+    if i==3
+        title('规格化后的测试集图像','fontsize',20)   %窗口标题
+    end
+end
+
+%这一步显示平均脸
+m=mean(S,2);   %获得行的均值 (平均脸)
+tmimg=uint8(m);   %converts to unsigned 8-bit integer. Values range from 0 to 255 转换成8位的无符号整数 0~255
+img=reshape(tmimg,irow,icol);    %takes the N1*N2x1 vector and creates a N2xN1 matrix 创建一个N2×N1的矩阵
+figure(3);
+imshow(img);   %显示平均脸
+title('训练集的平均人脸','fontsize',20)  %设计平均脸窗口的标题
+
+%这一步求出A矩阵
+tmimg=reshape(img,irow*icol,1);  %把平均脸转成向量的形式
+A=[];
+for i=1:M           %计算每张人脸与平均脸的差值
+    A(:,i)=(S(:,i))-tmimg;     
+end
+L=A'*A;  %得到构造矩阵L
+[vv dd]=eig(L);  %vv是L的特征向量构成的列向量，dd是L特征值构成的对角阵
+                 %求矩阵L的全部特征值，构成对角阵dd，并求A的特征向量构成vv的列向量
+
+%消去特征值为零的特征向量和特征值
+v=[];
+d=[];
+for i=1:size(vv,2)
+    if(dd(i,i)>1e-4)    %1e-4=0.0001
+        v=[v vv(:,i)];
+        d=[d dd(i,i)];
+    end
+end    %结果这循环后，吧dd变换为d  d=1xM   d为L的特征值
+[B index]=sort(d);  % 对d进行从小到大排序，排序结果存在B中，index是B在d中的索引号
+
+ind=zeros(size(index));
+dtemp=zeros(size(index));
+vtemp=zeros(size(v));
+len=length(index);
+%此循环的目的是把特征值d和特征向量v 按左右翻转了    从大到小
+ for i=1:len       %循环20次
+    dtemp(i)=B(len+1-i);  % 将B(len+1-i)的值给dtemp(i) 倒序了，比如 B(20)=dtemp(1) 目的是：把B（也就是L的来的特征值）临时存储在变量dtemp中  
+    ind(i)=len+1-index(i);  %也是把index索引倒序了，为了和dtemp变量一样
+    vtemp(:,ind(i))=v(:,i); %Vtemp存储特征向量V，按左右翻转存储
+ end
+ d=dtemp;  %左右翻转后把值保持好 d为L特征值按左右翻转的结果
+ v=vtemp;  %左右翻转后把值保持好 v为L特征向量按左右翻转的结果
+
+  %把矩阵L特征向量规格化
+ for i=1:size(v,2)          %循环数和矩阵v的列数相等 20次
+   kk=v(:,i);               %将v的第i行赋给kk
+   temp=sqrt(sum(kk.^2));   %取一个临时变量,命名为temp  将kk每一项元素进行平方运算.然后求和,再取平方根 赋给temp
+   v(:,i)=v(:,i)./temp;     %把v矩阵与temp矩阵对应的元素进行相除 再重新生成v
+ end
+ 
+ %求出协方差矩阵C的特征向量
+u=[];
+for i=1:size(v,2)           %循环次数和矩阵v的列数相等 20次
+    temp=sqrt(d(i));        %建立一个中间量temp d(i)为d数组中的第i个元素,将其取平方根,赋给temp
+    u=[u (A*v(:,i))./temp]; %构造矩阵u
+end 
+ 
+% 特征向量的规格化
+for i=1:size(u,2)  %循环次数为U向量个数，为20次
+   kk=u(:,i);      %将U的一个向量给予kk 大少为36000X1
+   temp=sqrt(sum(kk.^2)); %%取一个临时变量,命名为temp，将kk每一项元素进行平方运算.然后求和,再取平方根 赋给temp
+   u(:,i)=u(:,i)./temp;
+end
+
+% 显示特征脸
+figure(4);
+for i=1:size(u,2)  %循环次数为U向量个数，为20次
+    img=reshape(u(:,i),irow,icol);  %从向量的显示转为图片大少
+    img=histeq(img,255);  %用均衡直方图来提高对比度
+    subplot(ceil(sqrt(M)),ceil(sqrt(M)),i)  %分行列显示
+    imshow(img)  %显示图片
+    drawnow;    %刷新
+    if i==3
+        title('特征人脸','fontsize',20)  %设计标题
+    end
+end
+
+% 找到每个人脸在训练中的权值
+omega = [];   % 建立一个空矩阵omega
+for h=1:size(A,2)    %循环20次
+    WW=[];           %外层循环建立一个空矩阵WW
+    for i=1:size(u,2)  %循环20次
+        t = u(:,i)';    %将u的第i列转置赋给t
+        WeightOfImage = dot(t,A(:,h));  %由t和dbx的第h列转置构成向量点,赋给WeightOfImage
+        WW = [WW; WeightOfImage];   %构成WW
+    end
+    omega = [omega WW];       %omega是M张已知人脸投影到特征子空间ui上的坐标   omega
+end
+
+%以上部分即完成了图像的读入,规格化,特征空间的训练,特征脸的形成
+%并且显示出训练图像,规格化图像,均值图像和特征脸
+
+%以下部分为识别的部分
+
+%获得一个新图片 并对输入的图片进行规格化
+InputImage = input('请输入测试图片（一张）： \n','s'); %输入一字符串 比如1.jpg
+InputImage = imread(strcat('E:\QQ文件\Face ID\测试\',InputImage));
+figure(5)
+subplot(1,2,1);      %一个窗口分1X2显示
+imshow(InputImage);  %显示输入的图像
+figure(6);
+subplot(1, 2, 1);
+imshow(InputImage);
+title('要识别的图片','fontsize',14);
+InputImage=rgb2gray(InputImage);
+
+f=InputImage;
+f = imresize(f, [256, 256]);
+f = reshape(f, [si, 1]);
+f = im2double(f);
+f = f - mean_img;
+f = w' * f;  % 将要识别的图片投影到特征空间上
+
+figure(5);
+colormap('gray');    %
+title('输入的测试图像','fontsize',16);  %设计窗口标题
+InImage=reshape(double(InputImage),irow*icol,1);  %把输入的图片转换为(N1*N2)x1 的列向量
+temp=InImage;
+me=mean(temp);              %求列向量的均值，默认求列的均值
+st=std(temp);               %求的标准偏差 （是样本标准差）
+temp=(temp-me)*ustd/st+um;  %由此公式对图片进行均值化
+NormImage = temp;           %保存规格化后的图片在NormImage变量中
+
+Difference = temp-m;        %m是训练集合S里的均值，得到差值向量，即是(R－Ψ)
+%NormImage=Difference;
+
+%得到输入图像在ui上的坐标
+p = [];                     %测试图片主成分
+aa=size(u,2);               %循环20次数 是训练集图片数
+for i = 1:aa
+    pare = dot(u(:,i)',Difference);
+    p = [p; pare];           %p存储输入图片在子空间u上的坐标                  p 
+end
+%重建
+ReshapedImage = m + u(:,1:aa)*p;  %m为均值图像,u是特征向量,取u矩阵的1到aa列与p矩阵相乘,再与m相加
+%imshow(ReshapedImage)
+ReshapedImage = reshape(ReshapedImage,irow,icol);
+%ReshapedImage = ReshapedImage';
+
+%show the reconstructed image.
+figure(5);
+subplot(1,2,2);
+imagesc(ReshapedImage);     %显示重构图片
+%imshow(ReshapedImage)
+colormap('gray');
+title('通过特征向量U重建的测试图像','fontsize',16);
+
+
+% 在数据库中找寻与识别图片最相近的图片
+distance = Inf;
+best_k = 0;
+for k = 1:n
+    d = norm(f - eigenface(:, k));
+    if(distance > d)
+        best_k = k;
+        distance = d;
+    end
+end
+path = strcat('E:\QQ文件\Face ID\训练\', s(best_k).name);
+f = imread(path);
+figure(6);
+subplot(1, 2, 2);
+imshow(f);
+title('数据库中最接近的图片','fontsize',14);
+
+
+InImWeight = [];                                     %建立一个空矩阵InImWeight
+for i=1:size(u,2)                                     
+  t = u(:,i)';                                       %将u的i列转置,赋给t
+  WeightOfInputImage = dot(t,Difference');           %构造矢量点WeightOfInputImage
+  InImWeight = [InImWeight; WeightOfInputImage];     %构造InImageWeight
+end 
+
+InImWeight=p;
+
+ll = 1:M;
+figure(7)
+subplot(1,2,1)      %figure7左边显示输入图像的权值
+stem(ll,InImWeight) %利用stem函数,划分离散序列数据
+title('Weight of Input Face','fontsize',14)
+
+
+% Find Euclidean distance找到欧几里得距离
+e=[];                    %测试图片与训练集的欧氏距离只差
+for i=1:size(omega,2)
+    q = omega(:,i);
+    DiffWeight = InImWeight-q;
+    mag = norm(DiffWeight);
+    e = [e mag];
+end
+
+kk = 1:size(e,2);
+subplot(1,2,2)
+stem(kk,e)
+title('Eucledian distance of input image','fontsize',14)
+MaximumValue=max(e)
+MinimumValue=min(e)
+
+
